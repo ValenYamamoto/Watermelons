@@ -48,10 +48,14 @@ public class MainActivity extends AppCompatActivity {
     private int sampleNumBits = 16;
     private int numChannels = 1;
 
+    private static int BACKGROUND_SOUND_THRESHOLD = 200;
+
     private double recordTime = 1;
     private long startTime = 0;
+    private int getSoundConstant = 1;
 
     private int currentIndex = 0;
+    private short lastAmp;
 
     private double[] dataArray = null;
     private double[] timePoints = null;
@@ -115,7 +119,6 @@ public class MainActivity extends AppCompatActivity {
         audioRecorder = new AudioRecord(audioSource, samplingRate, channelConfig, audioFormat, bufferSize);
         audioRecorder.startRecording();
         isRecording = true;
-        startTime = System.currentTimeMillis();
         fullAudioData = null;
         new Thread(new Runnable() {
             @Override
@@ -123,10 +126,10 @@ public class MainActivity extends AppCompatActivity {
                 while (isRecording) {
                     Log.d("Thread", "isRecording");
                     try {
-                        if (System.currentTimeMillis() < startTime + recordTime * 1000) {
-                            final short[] pktBuf = new short[bufferSize];
+                        final short[] pktBuf = new short[bufferSize];
 //                            int recordStatus = audioRecorder.getState();
 //                            Log.d("While Recording", "Current State: " + recordStatus);
+                        if(audioRecorder != null) {
                             readFully(pktBuf, 0, bufferSize);
                             currentIndex++;
                             Log.d("While Reocrding", "index " + currentIndex + "   " + bufferSize);
@@ -134,20 +137,16 @@ public class MainActivity extends AppCompatActivity {
                                 @Override
                                 public void run() {
                                     Log.d("While Recording", "RMS Recording Value: " + rmsArray(pktBuf));
-                                    if(fullAudioData == null) {
+                                    if (fullAudioData == null) {
                                         fullAudioData = pktBuf;
                                     } else {
                                         fullAudioData = addArrays(fullAudioData, pktBuf);
                                     }
                                 }
                             }).start();
-
-                        } else {
-                            stopRecording();
-                            Log.d("While Reocrding", "Out of Time");
                         }
                     } catch (ArrayIndexOutOfBoundsException e) {
-                        stopRecording();
+
                         Log.d("While Reocrding", "Array Index Out of Bounds");
                     }
                 }
@@ -155,34 +154,46 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
+    /**
+     * Called when AudioRecord stops recording
+     * Frees AudioRecord resources
+     * Runs DFT
+     * Writes Data to File
+     */
     private void stopRecording() {
         audioRecorder.stop();
         audioRecorder = null;
         isRecording = false;
-        currentIndex = 0;
-        for(int i = 0; i < dataArray.length; i ++) {
-//            Log.d("Printing Data", "Data Array -> " + dataArray[i]);
-        }
-        timePoints = new double[fullAudioData.length];
-//        for(int i = 0; i < timePoints.length; i++) {
-//            timePoints[i] = (double) i/samplingRate;
-//            Log.d("Full Audio Data", "index: " + i + "   " + fullAudioData[i]);
-//        }
-        Log.d("While Reocrding", "Before DFT");
-        output = dft(timePoints, fullAudioData);
+        getSoundConstant = 1;
 
-//        for (int i = 0; i < output.length; i ++) {
-//            Log.d("DFT Final Output", "Frequency: " + output[i][0] + "    magnitude: " + output[i][1]);
-//        }
+        Log.d("Stop Recording", "Array Length: " + fullAudioData.length);
+        fullAudioData = getSound(fullAudioData);
+
+        timePoints = new double[fullAudioData.length];
+        for(int i = 0; i < timePoints.length; i++) {
+            timePoints[i] = (double) i/samplingRate;
+        }
+
+        fullAudioData = getSound(fullAudioData);
+
+        Log.d("While Reocrding", "Before DFT");
+        //output = dft(timePoints, fullAudioData);
+
         Log.d("While Reocrding", "After DFT");
 
         createLogFile();
         writeToFile();
     }
 
+    /**
+     * Makes sure that the entire read array is filled
+     * @param data the audio data
+     * @param off offset of read
+     * @param length length of buffer array
+     */
     private void readFully(short[] data, int off, int length) {
         int read;
-        while (length > 0) {
+        while (audioRecorder != null && length > 0) {
             read = audioRecorder.read(data, off, length);
 //            Log.d("While Recording", "Current Read Status: " + read);
             length -= 1;
@@ -261,6 +272,10 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View v) {
                 if(!isRecording) {
                     onRecord(true);
+                    setText("Stop Record");
+                } else {
+                    stopRecording();
+                    setText("Start Recording");
                 }
 
             }
@@ -360,14 +375,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void writeToFile() {
         writer.printf("Writing Full Audio Data %n");
-        for(int i = 0; i < timePoints.length; i++) {
-            timePoints[i] = (double) i/samplingRate;
+        for(int i = 0; i < fullAudioData.length; i++) {
             writer.printf("%.5f, %d%n", timePoints[i], fullAudioData[i]);
         }
-        writer.printf("Writing DFT Output%n");
-        for (int i = 0; i < output.length; i ++) {
-            writer.printf("%.5f, %.5f%n", output[i][0], output[i][1]);
-        }
+//        writer.printf("Writing DFT Output%n");
+//        for (int i = 0; i < output.length; i ++) {
+//            writer.printf("%.5f, %.5f%n", output[i][0], output[i][1]);
+//        }
         writer.close();
     }
 
@@ -399,4 +413,80 @@ public class MainActivity extends AppCompatActivity {
         sum = Math.sqrt(sum);
         return sum;
     }
+
+    private boolean startWave(short audio) {
+        if (lastAmp < 0 && audio >= 0) {
+            lastAmp = audio;
+            return true;
+        }
+        lastAmp = audio;
+        return false;
+    }
+
+    private boolean endWave(short audio) {
+        if (lastAmp > 0 && audio <= 0) {
+            lastAmp = audio;
+            return true;
+        }
+        lastAmp = audio;
+        return false;
+    }
+
+    private int findLocalMax(short[] data) {
+        int max = 0;
+        for (int i = 0; i < data.length; i ++) {
+            if(Math.abs(data[i]) > max ) {
+                max = Math.abs(data[i]);
+            }
+        }
+        return max;
+    }
+
+    private short[] getSound(short[] audio) {
+        if(getSoundConstant == 1) {
+            getSoundConstant = 0;
+            Log.d("getSound", "Starting");
+            lastAmp = 0;
+            int startIndex = -1;
+            for (int i = 0; i < audio.length; i++) {
+                if (startWave(audio[i])) {
+                    if (startIndex != -1) {
+//                    rmsArray(Arrays.copyOfRange(audio, startIndex, i + 1));
+                        int localMax = findLocalMax(Arrays.copyOfRange(audio, startIndex, i + 1));
+                        if (localMax > BACKGROUND_SOUND_THRESHOLD) {
+
+                            break;
+                        }
+                    }
+                    startIndex = i;
+                }
+            }
+            if (startIndex == -1) {
+                startIndex = 0;
+            }
+            lastAmp = 0;
+            int endIndex = -1;
+            for (int i = startIndex; i < audio.length; i++) {
+                if (endWave(audio[i])) {
+                    if (endIndex != -1) {
+                        int localMax = findLocalMax((Arrays.copyOfRange(audio, endIndex, i + 1)));
+                        if (localMax < BACKGROUND_SOUND_THRESHOLD) {
+
+                            break;
+                        }
+                    }
+                    endIndex = i;
+                }
+            }
+            if (endIndex == -1) {
+                endIndex = audio.length - 1;
+            }
+            Log.d("Finding Sound Bite", "Start: " + startIndex + "    End: " + endIndex);
+            if (startIndex != endIndex) {
+                return Arrays.copyOfRange(audio, startIndex, endIndex + 1);
+            }
+        }
+        return audio;
+    }
+
 }
