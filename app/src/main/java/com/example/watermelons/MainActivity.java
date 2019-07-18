@@ -41,21 +41,20 @@ public class MainActivity extends AppCompatActivity {
     private AudioRecord audioRecorder = null;
 
     private int audioSource = MediaRecorder.AudioSource.MIC;
-    private int samplingRate = 44100; // Hz
+    public static final int samplingRate = 44100; // Hz
     private int channelConfig = AudioFormat.CHANNEL_IN_MONO;
     private int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
     private int bufferSize = AudioRecord.getMinBufferSize(samplingRate, channelConfig, audioFormat);
     private int sampleNumBits = 16;
     private int numChannels = 1;
 
-    private static int BACKGROUND_SOUND_THRESHOLD = 200;
 
     private double recordTime = 1;
     private long startTime = 0;
     private int getSoundConstant = 1;
 
     private int currentIndex = 0;
-    private short lastAmp;
+
 
     private double[] dataArray = null;
     private double[] timePoints = null;
@@ -63,6 +62,7 @@ public class MainActivity extends AppCompatActivity {
     private double[][] output = null;
 
     private boolean isRecording = false;
+    private boolean isReading = false;
 
     private PlayButton playButton = null;
     private MediaPlayer player = null;
@@ -120,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
         audioRecorder.startRecording();
         isRecording = true;
         fullAudioData = null;
+//        recording();
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -133,20 +134,18 @@ public class MainActivity extends AppCompatActivity {
                             readFully(pktBuf, 0, bufferSize);
                             currentIndex++;
                             Log.d("While Reocrding", "index " + currentIndex + "   " + bufferSize);
-                            new Thread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    Log.d("While Recording", "RMS Recording Value: " + rmsArray(pktBuf));
-                                    if (fullAudioData == null) {
-                                        fullAudioData = pktBuf;
-                                    } else {
-                                        fullAudioData = addArrays(fullAudioData, pktBuf);
-                                    }
+
+                            Log.d("While Recording", "RMS Recording Value: " + SoundAnalysis.rmsArray(pktBuf));
+                            if(isRecording) {
+                                if (fullAudioData == null) {
+                                    fullAudioData = pktBuf;
+                                } else {
+                                    fullAudioData = addArrays(fullAudioData, pktBuf);
                                 }
-                            }).start();
+                            }
+                            isReading = false;
                         }
                     } catch (ArrayIndexOutOfBoundsException e) {
-
                         Log.d("While Reocrding", "Array Index Out of Bounds");
                     }
                 }
@@ -161,28 +160,33 @@ public class MainActivity extends AppCompatActivity {
      * Writes Data to File
      */
     private void stopRecording() {
-        audioRecorder.stop();
-        audioRecorder = null;
-        isRecording = false;
-        getSoundConstant = 1;
+        if(audioRecorder != null) {
+            audioRecorder.stop();
+            audioRecorder = null;
+            isRecording = false;
 
-        Log.d("Stop Recording", "Array Length: " + fullAudioData.length);
-        fullAudioData = getSound(fullAudioData);
 
-        timePoints = new double[fullAudioData.length];
-        for(int i = 0; i < timePoints.length; i++) {
-            timePoints[i] = (double) i/samplingRate;
+            Log.d("Stop Recording", "Array Length: " + fullAudioData.length);
+            fullAudioData = SoundAnalysis.getSound(fullAudioData);
+
+            timePoints = new double[fullAudioData.length];
+            for (int i = 0; i < timePoints.length; i++) {
+                timePoints[i] = (double) i / samplingRate;
+            }
+
+
+            Log.d("While Reocrding", "Before DFT");
+            output = SoundAnalysis.dft(timePoints, fullAudioData);
+
+            Log.d("While Reocrding", "After DFT");
+
+            double peak = SoundAnalysis.findMax(output);
+            Log.d("Stop Recording", "Max DFT Value: " + peak);
+            Log.d("Stop Recording", "Note: " + SoundAnalysis.closestNoteFrequency(peak));
+
+            createLogFile();
+            writeToFile();
         }
-
-        fullAudioData = getSound(fullAudioData);
-
-        Log.d("While Reocrding", "Before DFT");
-        //output = dft(timePoints, fullAudioData);
-
-        Log.d("While Reocrding", "After DFT");
-
-        createLogFile();
-        writeToFile();
     }
 
     /**
@@ -193,75 +197,14 @@ public class MainActivity extends AppCompatActivity {
      */
     private void readFully(short[] data, int off, int length) {
         int read;
+        isReading = true;
         while (audioRecorder != null && length > 0) {
             read = audioRecorder.read(data, off, length);
 //            Log.d("While Recording", "Current Read Status: " + read);
             length -= 1;
             off += read;
         }
-    }
 
-    private static void dft(double[] inreal, double[] inimag) {
-        int n = inreal.length;
-
-        double[] outreal = new double[n];
-        double[] outimag = new double[n];
-
-        for(int k = 0; k < n; k++) {
-            double sumreal = 0;
-            double sumimag = 0;
-
-            for (int t = 0; t < n; t++) {
-                double angle = 2 * Math.PI * t * k;
-                angle = angle / n;
-
-                sumreal += inimag[t] * Math.cos(angle);
-                sumimag += inimag[t] * Math.sin(angle);
-            }
-            outreal[k] = sumreal;
-            outimag[k] = sumimag;
-        }
-//        System.out.println("Printing DFT Output:");
-        double[] freq = new double[n/2];
-        for (int i = 0; i < freq.length; i ++) {
-            freq[i] = 4 * (outreal[i] * outreal[i]) + 4 * (outimag[i] * outimag[i]);
-            freq[i] /= n;
-        }
-    }
-
-    private double[][] dft(double[] inreal, short[] inimag) {
-        int n = inreal.length;
-
-        double[] outreal = new double[n];
-        double[] outimag = new double[n];
-
-        for(int k = 0; k < n; k++) {
-            double sumreal = 0;
-            double sumimag = 0;
-
-            for (int t = 0; t < n; t++) {
-                double angle = 2 * Math.PI * t * k;
-                angle = angle / n;
-
-                sumreal += inimag[t] * Math.cos(angle);
-                sumimag += inimag[t] * Math.sin(angle);
-            }
-            outreal[k] = sumreal;
-            outimag[k] = sumimag;
-        }
-//        System.out.println("Printing DFT Output:");
-        double[] freq = new double[n/2];
-        for (int i = 0; i < freq.length; i ++) {
-            freq[i] = 4 * (outreal[i] * outreal[i]) + 4 * (outimag[i] * outimag[i]);
-            freq[i] /= n;
-        }
-
-        double[][] finalOutput = new double[n/2][2];
-        for(int i = 0; i < finalOutput.length; i ++) {
-            finalOutput[i][0] = i * samplingRate/n;
-            finalOutput[i][1] = freq[i];
-        }
-        return finalOutput;
     }
 
 
@@ -274,8 +217,9 @@ public class MainActivity extends AppCompatActivity {
                     onRecord(true);
                     setText("Stop Record");
                 } else {
-                    stopRecording();
+                    Log.d("Button Press", "Calling stop record");
                     setText("Start Recording");
+                    stopRecording();
                 }
 
             }
@@ -378,10 +322,10 @@ public class MainActivity extends AppCompatActivity {
         for(int i = 0; i < fullAudioData.length; i++) {
             writer.printf("%.5f, %d%n", timePoints[i], fullAudioData[i]);
         }
-//        writer.printf("Writing DFT Output%n");
-//        for (int i = 0; i < output.length; i ++) {
-//            writer.printf("%.5f, %.5f%n", output[i][0], output[i][1]);
-//        }
+        writer.printf("Writing DFT Output%n");
+        for (int i = 0; i < output.length; i ++) {
+            writer.printf("%.5f, %.5f%n", output[i][0], output[i][1]);
+        }
         writer.close();
     }
 
@@ -390,6 +334,7 @@ public class MainActivity extends AppCompatActivity {
             String fileLocation = getExternalCacheDir().getAbsolutePath() + "/watermelons" + new SimpleDateFormat("MMddhhmm'.csv'").format(new Date());
             File file = new File(fileLocation);
             writer = new PrintWriter(fileLocation, "UTF-8");
+            Log.d("Creating Log File", "Log File Name: " + fileLocation);
         } catch(FileNotFoundException | UnsupportedEncodingException e) {
             Log.d("Creating Log File", "We Got Problems");
         }
@@ -404,89 +349,17 @@ public class MainActivity extends AppCompatActivity {
         return sum;
     }
 
-    private double rmsArray(short[] array) {
-        double sum = 0;
-        for (int i = 0; i < array.length; i ++) {
-            sum += array[i] * array[i];
-        }
-        sum /= array.length;
-        sum = Math.sqrt(sum);
-        return sum;
+
+
+
+
+
+
+
+    private double[] localSpikes(double[][] data) {
+        return null;
     }
 
-    private boolean startWave(short audio) {
-        if (lastAmp < 0 && audio >= 0) {
-            lastAmp = audio;
-            return true;
-        }
-        lastAmp = audio;
-        return false;
-    }
 
-    private boolean endWave(short audio) {
-        if (lastAmp > 0 && audio <= 0) {
-            lastAmp = audio;
-            return true;
-        }
-        lastAmp = audio;
-        return false;
-    }
-
-    private int findLocalMax(short[] data) {
-        int max = 0;
-        for (int i = 0; i < data.length; i ++) {
-            if(Math.abs(data[i]) > max ) {
-                max = Math.abs(data[i]);
-            }
-        }
-        return max;
-    }
-
-    private short[] getSound(short[] audio) {
-        if(getSoundConstant == 1) {
-            getSoundConstant = 0;
-            Log.d("getSound", "Starting");
-            lastAmp = 0;
-            int startIndex = -1;
-            for (int i = 0; i < audio.length; i++) {
-                if (startWave(audio[i])) {
-                    if (startIndex != -1) {
-//                    rmsArray(Arrays.copyOfRange(audio, startIndex, i + 1));
-                        int localMax = findLocalMax(Arrays.copyOfRange(audio, startIndex, i + 1));
-                        if (localMax > BACKGROUND_SOUND_THRESHOLD) {
-
-                            break;
-                        }
-                    }
-                    startIndex = i;
-                }
-            }
-            if (startIndex == -1) {
-                startIndex = 0;
-            }
-            lastAmp = 0;
-            int endIndex = -1;
-            for (int i = startIndex; i < audio.length; i++) {
-                if (endWave(audio[i])) {
-                    if (endIndex != -1) {
-                        int localMax = findLocalMax((Arrays.copyOfRange(audio, endIndex, i + 1)));
-                        if (localMax < BACKGROUND_SOUND_THRESHOLD) {
-
-                            break;
-                        }
-                    }
-                    endIndex = i;
-                }
-            }
-            if (endIndex == -1) {
-                endIndex = audio.length - 1;
-            }
-            Log.d("Finding Sound Bite", "Start: " + startIndex + "    End: " + endIndex);
-            if (startIndex != endIndex) {
-                return Arrays.copyOfRange(audio, startIndex, endIndex + 1);
-            }
-        }
-        return audio;
-    }
 
 }
