@@ -129,6 +129,8 @@ public class SoundAnalysis {
 
     private static int BACKGROUND_SOUND_THRESHOLD = 200;
 
+    private static int finalEndIndex;
+
     private static short lastAmp;
 
     public static String closestNoteFrequency(double freq) {
@@ -235,9 +237,9 @@ public class SoundAnalysis {
 
     public static short[] getSoundRMS(short[] audio) {
         Log.d("getSound", "Starting");
-        Log.d("getSound", "Array Length: " + audio.length);
+//        Log.d("getSound", "Array Length: " + audio.length);
         double rmsFullArray = rmsArray(audio);
-        Log.d("getSound", "Array RMS: " + rmsFullArray);
+//        Log.d("getSound", "Array RMS: " + rmsFullArray);
         int startIndex = -1;
         for (int i = 0; i < audio.length; i++) {
             if (startWave(audio[i])) {
@@ -272,11 +274,12 @@ public class SoundAnalysis {
         if (endIndex == -1) {
             endIndex = audio.length - 1;
         }
-        Log.d("Finding Sound Bite", "Start: " + startIndex + "    End: " + endIndex);
+//        Log.d("Finding Sound Bite", "Start: " + startIndex + "    End: " + endIndex);
         if (startIndex != endIndex) {
+            finalEndIndex = endIndex;
             return Arrays.copyOfRange(audio, startIndex, endIndex + 1);
         }
-
+        finalEndIndex = audio.length-1;
         return audio;
     }
 
@@ -328,6 +331,25 @@ public class SoundAnalysis {
         sum /= array.length;
         sum = Math.sqrt(sum);
         return sum;
+    }
+
+    public static short[] getHighlightRMS(short[] audio) {
+        short[] bestCut = getSoundRMS(audio);
+        finalEndIndex = 0;
+        boolean done = false;
+        while(!done) {
+            if(finalEndIndex != audio.length - 1) {
+//    			System.out.printf("Final End Index: %d%n", finalEndIndex);
+                audio = Arrays.copyOfRange(audio, finalEndIndex, audio.length);
+                short[] newCut = getSoundRMS(audio);
+                if(rmsArray(bestCut) < rmsArray(newCut)) {
+                    bestCut = newCut;
+                }
+            } else {
+                done = true;
+            }
+        }
+        return bestCut;
     }
 
 }

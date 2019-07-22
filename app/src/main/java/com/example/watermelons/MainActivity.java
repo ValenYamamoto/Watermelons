@@ -13,11 +13,13 @@ import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaPlayer;
 import android.media.MediaRecorder;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -25,7 +27,6 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.text.SimpleDateFormat;
-import java.util.Arrays;
 import java.util.Date;
 
 
@@ -34,37 +35,31 @@ public class MainActivity extends AppCompatActivity {
     private static final String LOG_TAG = "AudioRecordTest";
     private static final int REQUEST_RECORD_AUDIO_PERMISSION = 200;
     private static String fileName = null;
-    private static String lastDate = null;
 
     private RecordButton recordButton = null;
     private MediaRecorder recorder = null;
     private AudioRecord audioRecorder = null;
+    private TextView textView = null;
 
     private int audioSource = MediaRecorder.AudioSource.MIC;
     public static final int samplingRate = 44100; // Hz
     private int channelConfig = AudioFormat.CHANNEL_IN_MONO;
     private int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
     private int bufferSize = AudioRecord.getMinBufferSize(samplingRate, channelConfig, audioFormat);
-    private int sampleNumBits = 16;
-    private int numChannels = 1;
 
-
-    private double recordTime = 1;
-    private long startTime = 0;
-    private int getSoundConstant = 1;
 
     private int currentIndex = 0;
 
 
-    private double[] dataArray = null;
     private double[] timePoints = null;
     private short[] fullAudioData = null;
+    private short[] highlight = null;
     private double[][] output = null;
 
-    private boolean isRecording = false;
-    private boolean isReading = false;
+    private double peak;
 
-    private PlayButton playButton = null;
+    private boolean isRecording = false;
+
     private MediaPlayer player = null;
 
     private static PrintWriter writer;
@@ -143,7 +138,6 @@ public class MainActivity extends AppCompatActivity {
                                     fullAudioData = addArrays(fullAudioData, pktBuf);
                                 }
                             }
-                            isReading = false;
                         }
                     } catch (ArrayIndexOutOfBoundsException e) {
                         Log.d("While Reocrding", "Array Index Out of Bounds");
@@ -160,32 +154,18 @@ public class MainActivity extends AppCompatActivity {
      * Writes Data to File
      */
     private void stopRecording() {
-        if(audioRecorder != null) {
+        if(audioRecorder != null && fullAudioData != null) {
             audioRecorder.stop();
             audioRecorder = null;
             isRecording = false;
 
-
-            Log.d("Stop Recording", "Array Length: " + fullAudioData.length);
-            fullAudioData = SoundAnalysis.getSound(fullAudioData);
-
-            timePoints = new double[fullAudioData.length];
-            for (int i = 0; i < timePoints.length; i++) {
-                timePoints[i] = (double) i / samplingRate;
-            }
+            new DFTBackgroundProcessing().execute();
 
 
-            Log.d("While Reocrding", "Before DFT");
-            output = SoundAnalysis.dft(timePoints, fullAudioData);
 
-            Log.d("While Reocrding", "After DFT");
-
-            double peak = SoundAnalysis.findMax(output);
-            Log.d("Stop Recording", "Max DFT Value: " + peak);
-            Log.d("Stop Recording", "Note: " + SoundAnalysis.closestNoteFrequency(peak));
-
-            createLogFile();
-            writeToFile();
+//
+//            createLogFile();
+//            writeToFile();
         }
     }
 
@@ -197,7 +177,6 @@ public class MainActivity extends AppCompatActivity {
      */
     private void readFully(short[] data, int off, int length) {
         int read;
-        isReading = true;
         while (audioRecorder != null && length > 0) {
             read = audioRecorder.read(data, off, length);
 //            Log.d("While Recording", "Current Read Status: " + read);
@@ -207,6 +186,98 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
+
+
+
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        Log.d("App Up", "Staring");
+        AudioManager audioManager = (AudioManager) this.getSystemService(Context.AUDIO_SERVICE);
+        audioRecorder = new AudioRecord(audioSource, samplingRate, channelConfig, audioFormat, bufferSize);
+        fileName = getExternalCacheDir().getAbsolutePath();
+        fileName += "/watermelons";
+
+        ActivityCompat.requestPermissions(this, permissions, REQUEST_RECORD_AUDIO_PERMISSION);
+        LinearLayout ll = new LinearLayout(this);
+
+        recordButton = new RecordButton(this);
+        ll.addView(recordButton,
+                new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        0));
+        textView = new TextView(this);
+        ll.addView(textView,
+                new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    0));
+        setContentView(ll);
+
+
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        if(recorder != null) {
+            recorder.release();
+            recorder = null;
+        }
+
+        if(player != null) {
+            player.release();
+            player = null;
+        }
+    }
+
+    public short[] addArrays(short[] a, short[] b) {
+        short[] sum = new short[a.length + b.length];
+        for (int i = 0; i < a.length; i ++) {
+            sum[i] = a[i];
+        }
+        for(int i = 0; i < b.length; i ++) {
+            sum[i + a.length] = b[i];
+        }
+        return sum;
+    }
+
+    private void writeToFile() {
+        writer.printf("Writing Full Audio Data %n");
+        for(int i = 0; i < fullAudioData.length; i++) {
+            writer.printf("%d%n", fullAudioData[i]);
+        }
+
+//        writer.printf("Writing Full Audio Data %n");
+//        for(int i = 0; i < highlight.length; i++) {
+//            writer.printf("%.5f, %d%n", timePoints[i], highlight[i]);
+//        }
+
+//        writer.printf("Writing DFT Output%n");
+//        for (int i = 0; i < output.length; i ++) {
+//            writer.printf("%.5f, %.5f%n", output[i][0], output[i][1]);
+//        }
+        writer.close();
+    }
+
+    private void createLogFile() {
+        try {
+            String fileLocation = getExternalCacheDir().getAbsolutePath() + "/watermelons" + new SimpleDateFormat("MMddhhmm'.csv'").format(new Date());
+            File file = new File(fileLocation);
+            writer = new PrintWriter(fileLocation, "UTF-8");
+            Log.d("Creating Log File", "Log File Name: " + fileLocation);
+        } catch(FileNotFoundException | UnsupportedEncodingException e) {
+            Log.d("Creating Log File", "We Got Problems");
+        }
+    }
+
+
+
+    private double[] localSpikes(double[][] data) {
+        return null;
+    }
 
     class RecordButton extends AppCompatButton {
         boolean mStartRecording = true;
@@ -255,109 +326,46 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private class DFTBackgroundProcessing extends AsyncTask<Void, Void, Void> {
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        Log.d("App Up", "Staring");
-        AudioManager audioManager = (AudioManager) this.getSystemService(Context.AUDIO_SERVICE);
-        Log.d("Initializing", "MinBufferSize -> " + bufferSize);
-        audioRecorder = new AudioRecord(audioSource, samplingRate, channelConfig, audioFormat, bufferSize);
-        fileName = getExternalCacheDir().getAbsolutePath();
-        fileName += "/watermelons";
-
-        ActivityCompat.requestPermissions(this, permissions, REQUEST_RECORD_AUDIO_PERMISSION);
-
-        LinearLayout ll = new LinearLayout(this);
-        recordButton = new RecordButton(this);
-        ll.addView(recordButton,
-                new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                0));
-        playButton = new PlayButton(this);
-        ll.addView(playButton,
-                new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                0));
-        setContentView(ll);
-
-        dataArray = new double[samplingRate * (int) recordTime];
-        timePoints = new double[dataArray.length];
-        for(int i = 0; i < timePoints.length; i++) {
-            timePoints[i] = (double) i/ samplingRate;
+        @Override
+        protected void onPreExecute() {
+            String text = String.format("Full Audio Array Length: %d%n", fullAudioData.length);
+            textView.setText(text);
+            recordButton.setText("Processing");
         }
 
 
-    }
+        @Override
+        protected Void doInBackground(Void... params) {
+//            Log.d("Stop Recording", "Array Length: " + fullAudioData.length);
+            highlight = SoundAnalysis.getHighlightRMS(fullAudioData);
 
-    @Override
-    public void onStop() {
-        super.onStop();
-        if(recorder != null) {
-            recorder.release();
-            recorder = null;
+            timePoints = new double[highlight.length];
+            for (int i = 0; i < timePoints.length; i++) {
+                timePoints[i] = (double) i / samplingRate;
+            }
+            Log.d("While Reocrding", "Before DFT");
+
+            output = SoundAnalysis.dft(timePoints, highlight);
+
+            Log.d("While Reocrding", "After DFT");
+            peak = SoundAnalysis.findMax(output);
+            return null;
         }
 
-        if(player != null) {
-            player.release();
-            player = null;
+        @Override
+        protected void onPostExecute(Void param){
+            Log.d("Stop Recording", "Max DFT Value: " + peak);
+            Log.d("Stop Recording", "Note: " + SoundAnalysis.closestNoteFrequency(peak));
+            String text = String.format("DFT Output Peak: %.2f  Closest Note: %s", peak, SoundAnalysis.closestNoteFrequency(peak));
+            textView.setText(text);
+            recordButton.setText("Start Recording");
         }
-    }
-
-    public short[] addArrays(short[] a, short[] b) {
-        short[] sum = new short[a.length + b.length];
-        for (int i = 0; i < a.length; i ++) {
-            sum[i] = a[i];
-        }
-        for(int i = 0; i < b.length; i ++) {
-            sum[i + a.length] = b[i];
-        }
-        return sum;
-    }
-
-    private void writeToFile() {
-        writer.printf("Writing Full Audio Data %n");
-        for(int i = 0; i < fullAudioData.length; i++) {
-            writer.printf("%.5f, %d%n", timePoints[i], fullAudioData[i]);
-        }
-        writer.printf("Writing DFT Output%n");
-        for (int i = 0; i < output.length; i ++) {
-            writer.printf("%.5f, %.5f%n", output[i][0], output[i][1]);
-        }
-        writer.close();
-    }
-
-    private void createLogFile() {
-        try {
-            String fileLocation = getExternalCacheDir().getAbsolutePath() + "/watermelons" + new SimpleDateFormat("MMddhhmm'.csv'").format(new Date());
-            File file = new File(fileLocation);
-            writer = new PrintWriter(fileLocation, "UTF-8");
-            Log.d("Creating Log File", "Log File Name: " + fileLocation);
-        } catch(FileNotFoundException | UnsupportedEncodingException e) {
-            Log.d("Creating Log File", "We Got Problems");
-        }
-    }
-
-    private double avgArray(short[] array) {
-        double sum = 0;
-        for (int i = 0; i < array.length; i ++) {
-            sum += array[i];
-        }
-        sum /= array.length;
-        return sum;
-    }
 
 
 
 
-
-
-
-
-    private double[] localSpikes(double[][] data) {
-        return null;
     }
 
 
