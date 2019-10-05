@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "933603324415",
+    "firebase_url": "https://watermelons-9b075.firebaseio.com",
+    "project_id": "watermelons-9b075",
+    "storage_bucket": "watermelons-9b075.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:933603324415:android:aad10f1c4821614b",
+        "android_client_info": {
+          "package_name": "com.example.watermelons"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "933603324415-pt11nke74cv99nh72rfjkj06joe424u4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBMM1uf4g7JLUJ4RnWZFSOT5R_UXmzpuSQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "933603324415-pt11nke74cv99nh72rfjkj06joe424u4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

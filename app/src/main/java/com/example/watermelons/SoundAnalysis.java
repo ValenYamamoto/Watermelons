@@ -2,6 +2,7 @@ package com.example.watermelons;
 
 import android.util.Log;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 
 public class SoundAnalysis {
@@ -130,6 +131,8 @@ public class SoundAnalysis {
     private static int BACKGROUND_SOUND_THRESHOLD = 200;
 
     private static int finalEndIndex;
+    private static int finalStartIndex;
+
 
     private static short lastAmp;
 
@@ -238,14 +241,14 @@ public class SoundAnalysis {
     public static short[] getSoundRMS(short[] audio) {
         Log.d("getSound", "Starting");
 //        Log.d("getSound", "Array Length: " + audio.length);
-        double rmsFullArray = rmsArray(audio);
+        double rmsFullArray = ArrayFunctions.rmsArray(audio);
 //        Log.d("getSound", "Array RMS: " + rmsFullArray);
         int startIndex = -1;
         for (int i = 0; i < audio.length; i++) {
             if (startWave(audio[i])) {
                 if (startIndex != -1) {
 //                   rmsArray(Arrays.copyOfRange(audio, startIndex, i + 1));
-                    double localrms = rmsArray(Arrays.copyOfRange(audio, startIndex, i + 1));
+                    double localrms = ArrayFunctions.rmsArray(Arrays.copyOfRange(audio, startIndex, i + 1));
                     if (localrms > rmsFullArray) {
 
                         break;
@@ -262,7 +265,7 @@ public class SoundAnalysis {
         for (int i = startIndex; i < audio.length; i++) {
             if (endWave(audio[i])) {
                 if (endIndex != -1) {
-                    double localrms = rmsArray(Arrays.copyOfRange(audio, startIndex, i + 1));
+                    double localrms = ArrayFunctions.rmsArray(Arrays.copyOfRange(audio, startIndex, i + 1));
                     if (localrms < rmsFullArray) {
 
                         break;
@@ -293,6 +296,52 @@ public class SoundAnalysis {
         return max;
     }
 
+    public static short[] trimAudio(short[] audio) {
+        double rmsFullArray = ArrayFunctions.rmsArray(audio);
+        int startIndex = -1;
+        for (int i = 0; i < audio.length; i++) {
+            if (startWave(audio[i])) {
+                if (startIndex != -1) {
+                    int localMax = findLocalMax(Arrays.copyOfRange(audio, startIndex, i + 1));
+                    if (localMax > rmsFullArray) {
+
+                        break;
+                    }
+                }
+                startIndex = i;
+            }
+        }
+        if (startIndex == -1) {
+            startIndex = 0;
+        }
+        finalStartIndex = startIndex;
+        lastAmp = 0;
+        int endIndex = -1;
+        for (int i = startIndex; i < audio.length; i++) {
+            if (endWave(audio[i])) {
+                if (endIndex != -1) {
+                    double localMax = findLocalMax(Arrays.copyOfRange(audio, endIndex, audio.length));
+                    if (localMax < rmsFullArray) {
+                        endIndex = i;
+                        break;
+                    }
+                }
+                endIndex = i;
+            }
+        }
+        if (endIndex == -1 || endIndex == 0) {
+            endIndex = audio.length - 1;
+        }
+        System.out.printf("Finding Sound Bite Start: %d    End: %d%n", startIndex, endIndex);
+        if (startIndex != endIndex) {
+            finalEndIndex = endIndex;
+            return Arrays.copyOfRange(audio, startIndex, endIndex + 1);
+        }
+//  	  	System.out.println("Hi Here");
+        finalEndIndex = endIndex;
+        return audio;
+    }
+
     private static boolean startWave(short audio) {
         if ((lastAmp < 0 && audio >= 0) || (lastAmp <= 0 && audio > 0)) {
             lastAmp = audio;
@@ -311,10 +360,10 @@ public class SoundAnalysis {
         return false;
     }
 
-    public static double findMax(double[][] data) {
+    public static double findMaxDFT(double[][] data) {
         double max = 0;
         double index = 0;
-        for(int i = 0; i < data.length; i ++) {
+        for(int i = 1; i < data.length; i ++) {
             if (data[i][1] > max) {
                 index = data[i][0];
                 max = data[i][1];
@@ -323,33 +372,234 @@ public class SoundAnalysis {
         return index;
     }
 
-    public static double rmsArray(short[] array) {
-        double sum = 0;
-        for (int i = 0; i < array.length; i ++) {
-            sum += array[i] * array[i];
-        }
-        sum /= array.length;
-        sum = Math.sqrt(sum);
-        return sum;
-    }
+//    public static double[] getHighlightAvg(short[] audio) {
+//        System.out.println("Starting Selection");
+//        double[] bestCut = getSoundAbsAvg(audio);
+//        finalEndIndex = 0;
+//        boolean done = false;
+//        while(!done) {
+//            if(finalEndIndex != audio.length - 1) {
+//                System.out.printf("Final End Index: %d%n", finalEndIndex);
+//                audio = Arrays.copyOfRange(audio, finalEndIndex, audio.length);
+//                double[] newCut = getSoundAbsAvg(audio);
+//                if(ArrayFunctions.absAvgArray(bestCut) < ArrayFunctions.absAvgArray(newCut)) {
+//                    bestCut = newCut;
+//                }
+//            } else {
+//                done = true;
+//            }
+////    		System.out.printf("Number of Loops in getHighlightAvg: %d%n", loops);
+////    		loops++;
+//        }
+//        return bestCut;
+//    }
 
     public static short[] getHighlightRMS(short[] audio) {
         short[] bestCut = getSoundRMS(audio);
         finalEndIndex = 0;
+        int loops = 0;
+        int startIndex = 0;
         boolean done = false;
+        ArrayList<Double> dftOutputs = new ArrayList<Double>();
+        ArrayList<Double> soundRMS = new ArrayList<Double>();
         while(!done) {
             if(finalEndIndex != audio.length - 1) {
+//    			System.out.printf("Array Length: %d     ", audio.length);
 //    			System.out.printf("Final End Index: %d%n", finalEndIndex);
                 audio = Arrays.copyOfRange(audio, finalEndIndex, audio.length);
                 short[] newCut = getSoundRMS(audio);
-                if(rmsArray(bestCut) < rmsArray(newCut)) {
+                if(ArrayFunctions.rmsArray(bestCut) < ArrayFunctions.rmsArray(newCut)) {
                     bestCut = newCut;
                 }
+                soundRMS.add(ArrayFunctions.rmsArray(newCut));
+                double[] timePoints = new double[newCut.length];
+                for (int i = 0; i < timePoints.length; i++) {
+                    timePoints[i] = (double) i / 44100;
+                }
+                startIndex += finalStartIndex;
+                double peak = findMaxDFT(dft(timePoints, newCut));
+                System.out.printf("Start Index: %d     peak: %.2f%n", startIndex, peak);
+                dftOutputs.add(peak);
+//          	  	System.out.printf("End Index: %d%n", finalEndIndex);
             } else {
                 done = true;
             }
+            startIndex += finalEndIndex - finalStartIndex;
+            loops++;
         }
+        double[] normalizedWeights = ArrayFunctions.normalize(soundRMS);
+        double[] toFile = new double[dftOutputs.size()];
+        double[] logs = new double[toFile.length];
+        for(int i = 0; i < dftOutputs.size(); i++) {
+            toFile[i] = dftOutputs.get(i);
+            logs[i] = Math.log10(toFile[i]);
+        }
+//    	System.out.printf("Median: %.2f%n", getMedian(toFile));
+//    	System.out.printf("IQR: %.2f%n", getIQR(toFile));
+//    	while(stdDev(toFile) > 50) {
+//    		double[] oldFile = toFile;
+//    		toFile = noPeaks(toFile);
+//    		if(toFile.equals(oldFile)) {
+//    			break;
+//    		}
+//    	}
+
+        double[] filtered = binFilterWithWeights(toFile, logs, normalizedWeights);
+        double medianFiltered = getMedian(filtered);
+        System.out.printf("Filtered Median: %.2f%n", medianFiltered);
+//    	Logging.createLogFile("Logs");
+//    	Logging.writeToFile(filtered);
         return bestCut;
+    }
+
+    private static double[] noPeaks(double[] data) {
+        System.out.printf("No Peaks Param Std Dev: %.2f  Array Size: %d%n", ArrayFunctions.stdDev(data), data.length);
+        double stdDev = ArrayFunctions.stdDev(data);
+
+        double[] noPeaks = new double[data.length];
+        double prevData = data[0];
+        int index = 0;
+        for(int i = 1; i < data.length; i ++) {
+            if(Math.abs(prevData - data[i]) < stdDev) {
+                noPeaks[index] = data[i];
+                index++;
+            }
+            prevData = data[i];
+        }
+        if(index == 0) {
+            return data;
+        }
+        return Arrays.copyOfRange(noPeaks, 0, index);
+    }
+
+    private static double[] binFilter(double[] data, double[] logs) {
+        ArrayList<Bin> bins = new ArrayList<Bin>();
+        double firstLog = (Math.abs(logs[1] + logs[0])/2);
+        double firstFrequency = (Math.abs(data[1] - data[0])/2);
+        bins.add(new Bin(firstLog, firstFrequency));
+        for (int i = 0; i < logs.length; i ++) {
+            boolean added = false;
+            for(int j = 0; j < bins.size(); j++) {
+                if(Math.abs(bins.get(j).getLogFrequency() - logs[i]) < 0.1) {
+                    bins.get(j).addFrequency(data[i]);
+                    added = true;
+                    break;
+                }
+            }
+            if(!added) {
+                bins.add(new Bin(logs[i], data[i]));
+            }
+        }
+        Bin maxBin = bins.get(0);
+        for(int i = 1; i < bins.size(); i ++) {
+            if(bins.get(i).getLogFrequency() != Double.NEGATIVE_INFINITY) {
+                System.out.printf("IQR: %.5f  %s",getLogIQR(bins.get(i).returnArray()), bins.get(i));
+//    			System.out.print(bins.get(i));
+                if(maxBin.getContentLength() < bins.get(i).getContentLength()) {
+                    maxBin = bins.get(i);
+                }
+            }
+        }
+
+//    	Logging.createLogFile("BinFilterOutput");
+//    	Logging.writeToFile(bins);
+        System.out.println(maxBin);
+        return maxBin.returnArray();
+    }
+
+    private static double[] binFilterWithWeights(double[] data, double[] logs, double[] weights) {
+        ArrayList<Bin> bins = new ArrayList<Bin>();
+        double firstLog = Math.abs(logs[1] + logs[0])/2;
+        double firstFrequency =  (Math.abs(data[1] - data[0])/2);
+        bins.add(new Bin(firstLog, firstFrequency, 0.0));
+        for (int i = 0; i < logs.length; i ++) {
+            boolean added = false;
+            for(int j = 0; j < bins.size(); j++) {
+                if(Math.abs(bins.get(j).getLogFrequency() - logs[i]) < 0.1) {
+                    bins.get(j).addFrequency(data[i], weights[i]);
+                    added = true;
+                    break;
+                }
+            }
+            if(!added) {
+                bins.add(new Bin(logs[i], data[i], weights[i]));
+            }
+        }
+        Bin maxBin = bins.get(0);
+        for(int i = 1; i < bins.size(); i ++) {
+            if(bins.get(i).getLogFrequency() != Double.NEGATIVE_INFINITY) {
+                System.out.printf("WA: %.2f  CN: %s  SW: %.2f  %s", bins.get(i).weightedAverage(), closestNoteFrequency(bins.get(i).weightedAverage()),
+                        bins.get(i).sumOfWeights(), bins.get(i));
+//    			System.out.print(bins.get(i));
+                if(maxBin.getContentLength() < bins.get(i).getContentLength()) {
+                    maxBin = bins.get(i);
+                }
+            }
+        }
+
+//    	Logging.createLogFile("BinFilterOutput");
+//    	Logging.writeToFile(bins);
+        System.out.println(maxBin);
+        return maxBin.returnArray();
+    }
+
+    private static double getMedian(double[] data) {
+        Arrays.sort(data);
+        if (data.length%2==0) {
+//    		System.out.println("Even");
+            return (data[data.length/2] + data[(data.length/2) - 1])/2;
+        }else {
+//    		System.out.println("Odd");
+            return data[(data.length - 1)/2];
+        }
+    }
+
+    private static double getIQR(double[] data) {
+        Arrays.sort(data);
+        if(data.length == 1) {
+            return 0;
+        }
+        if((data.length) % 2 == 0) {
+//    		System.out.println("Even");
+            double q1 = getMedian(Arrays.copyOfRange(data, 0, data.length/2));
+            double q3 = getMedian(Arrays.copyOfRange(data, data.length/2, data.length));
+
+//    		System.out.printf("Q1: %.2f  Q3: %.2f%n", q1, q3);
+            return q3 - q1;
+        } else {
+//    		System.out.println("Odd");
+            double q1 = getMedian(Arrays.copyOfRange(data, 0, data.length/2));
+            double q3 = getMedian(Arrays.copyOfRange(data, data.length/2 + 1, data.length));
+            System.out.println(q3);
+//    		System.out.printf("Q1: %.2f  Q3: %.2f%n", q1, q3);
+            return q3 - q1;
+        }
+    }
+
+    private static double getLogIQR(double[] data) {
+        Arrays.sort(data);
+        double[] logs = new double[data.length];
+        for(int i = 0; i < data.length; i ++) {
+            logs[i] = Math.log10(data[i]);
+        }
+        if(data.length == 1) {
+            return 0;
+        }
+        if((data.length) % 2 == 0) {
+//       	System.out.println("Even");
+            double q1 = getMedian(Arrays.copyOfRange(logs, 0, data.length/2));
+            double q3 = getMedian(Arrays.copyOfRange(logs, data.length/2, data.length));
+
+//        	System.out.printf("Q1: %.2f  Q3: %.2f%n", q1, q3);
+            return q3 - q1;
+        } else {
+//        	System.out.println("Odd");
+            double q1 = getMedian(Arrays.copyOfRange(logs, 0, data.length/2));
+            double q3 = getMedian(Arrays.copyOfRange(logs, data.length/2 + 1, data.length));
+            System.out.println(q3);
+//        	System.out.printf("Q1: %.2f  Q3: %.2f%n", q1, q3);
+            return q3 - q1;
+        }
     }
 
 }

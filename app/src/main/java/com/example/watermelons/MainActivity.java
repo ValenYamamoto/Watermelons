@@ -21,6 +21,9 @@ import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -62,10 +65,10 @@ public class MainActivity extends AppCompatActivity {
 
     private MediaPlayer player = null;
 
-    private static PrintWriter writer;
-
     private boolean permissionToRecordAccepted = false;
     private String[] permissions = {Manifest.permission.RECORD_AUDIO};
+
+    DatabaseReference rootRef = FirebaseDatabase.getInstance().getReference();
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -130,7 +133,7 @@ public class MainActivity extends AppCompatActivity {
                             currentIndex++;
                             Log.d("While Reocrding", "index " + currentIndex + "   " + bufferSize);
 
-                            Log.d("While Recording", "RMS Recording Value: " + SoundAnalysis.rmsArray(pktBuf));
+                            Log.d("While Recording", "RMS Recording Value: " + ArrayFunctions.rmsArray(pktBuf));
                             if(isRecording) {
                                 if (fullAudioData == null) {
                                     fullAudioData = pktBuf;
@@ -244,41 +247,6 @@ public class MainActivity extends AppCompatActivity {
         return sum;
     }
 
-    private void writeToFile() {
-        writer.printf("Writing Full Audio Data %n");
-        for(int i = 0; i < fullAudioData.length; i++) {
-            writer.printf("%d%n", fullAudioData[i]);
-        }
-
-//        writer.printf("Writing Full Audio Data %n");
-//        for(int i = 0; i < highlight.length; i++) {
-//            writer.printf("%.5f, %d%n", timePoints[i], highlight[i]);
-//        }
-
-//        writer.printf("Writing DFT Output%n");
-//        for (int i = 0; i < output.length; i ++) {
-//            writer.printf("%.5f, %.5f%n", output[i][0], output[i][1]);
-//        }
-        writer.close();
-    }
-
-    private void createLogFile() {
-        try {
-            String fileLocation = getExternalCacheDir().getAbsolutePath() + "/watermelons" + new SimpleDateFormat("MMddhhmm'.csv'").format(new Date());
-            File file = new File(fileLocation);
-            writer = new PrintWriter(fileLocation, "UTF-8");
-            Log.d("Creating Log File", "Log File Name: " + fileLocation);
-        } catch(FileNotFoundException | UnsupportedEncodingException e) {
-            Log.d("Creating Log File", "We Got Problems");
-        }
-    }
-
-
-
-    private double[] localSpikes(double[][] data) {
-        return null;
-    }
-
     class RecordButton extends AppCompatButton {
         boolean mStartRecording = true;
 
@@ -339,7 +307,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected Void doInBackground(Void... params) {
 //            Log.d("Stop Recording", "Array Length: " + fullAudioData.length);
-            highlight = SoundAnalysis.getHighlightRMS(fullAudioData);
+            highlight = SoundAnalysis.trimAudio(fullAudioData);
 
             timePoints = new double[highlight.length];
             for (int i = 0; i < timePoints.length; i++) {
@@ -350,7 +318,7 @@ public class MainActivity extends AppCompatActivity {
             output = SoundAnalysis.dft(timePoints, highlight);
 
             Log.d("While Reocrding", "After DFT");
-            peak = SoundAnalysis.findMax(output);
+            peak = SoundAnalysis.findMaxDFT(output);
             return null;
         }
 
@@ -362,9 +330,6 @@ public class MainActivity extends AppCompatActivity {
             textView.setText(text);
             recordButton.setText("Start Recording");
         }
-
-
-
 
     }
 
